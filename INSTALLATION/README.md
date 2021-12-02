@@ -37,3 +37,8 @@ ninja: build stopped: subcommand failed.
 打开vmaf/libvmaf/build/build.ninja文件<br />
 查找--end-group，在src/libvmaf.a后面加上-pthread<br />
 (3)执行ninja -vC build install时，前面一定要加上sudo！ <br />
+
+2. 安装libxcb的坑
+可能缺少xcb-proto，提示版本必须要大于等于1.13<br />
+安装方式如下 <br />
+https://noknow.info/it/os/install_xcb_proto_from_source?lang=ja
