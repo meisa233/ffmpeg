@@ -1,6 +1,6 @@
 安装文件
 -----
-1. 安装vmaf中间的坑
+1. 安装vmaf中间的坑 <br />
 (1)提示未定义的引用"vmaf_cpu_cpuid"或者"vmaf_cpu_xgetbv" <br />
 具体如下<br />
 ```
@@ -36,4 +36,4 @@ ninja: build stopped: subcommand failed.
 ```
 打开vmaf/libvmaf/build/build.ninja文件<br />
 查找--end-group，在src/libvmaf.a后面加上-pthread<br />
-3.执行ninja -vC build install时，前面一定要加上sudo！
+3.执行ninja -vC build install时，前面一定要加上sudo！ <br />
