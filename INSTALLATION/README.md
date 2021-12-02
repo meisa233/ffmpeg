@@ -36,4 +36,4 @@ ninja: build stopped: subcommand failed.
 ```
 打开vmaf/libvmaf/build/build.ninja文件<br />
 查找--end-group，在src/libvmaf.a后面加上-pthread<br />
-3.执行ninja -vC build install时，前面一定要加上sudo！ <br />
+(3)执行ninja -vC build install时，前面一定要加上sudo！ <br />
