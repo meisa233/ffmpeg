@@ -4,7 +4,8 @@
 友情提示：<br />
 如果是在Ubuntu 16.04上安装，请一定按照官方的编译说明来<br />
 https://trac.ffmpeg.org/wiki/CompilationGuide/Ubuntu <br />
-
+不要安装最新版本的ffmpeg，要安装4.4版本<br />
+如果想撤销已经安装的，请输入make uninstall <br />
 <br />
 
 1. 安装vmaf中间的坑 <br />
