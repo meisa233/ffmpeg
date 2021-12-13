@@ -211,7 +211,9 @@ static int open_output_file(const char *filename)
                 /* video time_base can be set to whatever is handy and supported by encoder */
                 enc_ctx->time_base = av_inv_q(dec_ctx->framerate);
             } else {
-                enc_ctx->sample_rate = dec_ctx->sample_rate;
+                if (avOfmat->video_codec == 2)
+                    enc_ctx->sample_rate = 48000;
+                else enc_ctx->sample_rate = dec_ctx->sample_rate;
                 enc_ctx->channel_layout = dec_ctx->channel_layout;
                 enc_ctx->channels = av_get_channel_layout_nb_channels(enc_ctx->channel_layout);
                 /* take first format from list of supported formats */
@@ -574,10 +576,11 @@ int main(int argc, char **argv)
         //printf("other_streams_nb:%d", other_streams_nb);
         for(i = 0; i < other_streams_nb; i++){
           if (stream_index==other_indexes[i]){
+            stream_index = -1;
             break;
           }
         }
-        if (stream_index==other_indexes[i]){
+        if (stream_index==-1){
           continue;
         }
         for(i = 0; i < video_streams_nb+audio_streams_nb; i++){
@@ -586,7 +589,7 @@ int main(int argc, char **argv)
           }
         }
         stream_index = i;
-        
+        printf("modified stream_index:%d\n", stream_index);
         if (filter_ctx[stream_index].filter_graph) {
             StreamContext *stream = &stream_ctx[stream_index];
 
