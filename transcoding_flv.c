@@ -55,6 +55,12 @@ typedef struct StreamContext {
     AVFrame *dec_frame;
 } StreamContext;
 static StreamContext *stream_ctx;
+static int * video_indexes;
+static int * audio_indexes;
+static int * other_indexes;
+
+static int * indexes;
+static int video_streams_nb=0, audio_streams_nb=0, other_streams_nb=0;
 
 static int open_input_file(const char *filename)
 {
@@ -72,12 +78,39 @@ static int open_input_file(const char *filename)
         return ret;
     }
 
-    stream_ctx = av_calloc(ifmt_ctx->nb_streams, sizeof(*stream_ctx));
+    video_indexes = (int*)calloc(ifmt_ctx->nb_streams, sizeof(int));
+    audio_indexes = (int*)calloc(ifmt_ctx->nb_streams, sizeof(int));
+    other_indexes = (int*)calloc(ifmt_ctx->nb_streams, sizeof(int));
+    for (i = 0; i < ifmt_ctx->nb_streams; i++){
+      AVStream *stream = ifmt_ctx->streams[i];
+      if (stream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO){
+        video_indexes[video_streams_nb] = i;
+        video_streams_nb += 1;
+      } else if (stream->codecpar->codec_type == AVMEDIA_TYPE_AUDIO){
+        audio_indexes[audio_streams_nb] = i;
+        audio_streams_nb += 1;
+      }else{
+        other_indexes[other_streams_nb] = i;
+        other_streams_nb += 1;
+      }
+    }
+
+    indexes = (int*)calloc(video_streams_nb+audio_streams_nb, sizeof(int));
+    for (i = 0; i < video_streams_nb; i++){
+      indexes[i] = video_indexes[i];
+    }
+    for (; i < video_streams_nb+audio_streams_nb; i++){
+      indexes[i] = audio_indexes[i-video_streams_nb];
+    }
+
+    stream_ctx = av_calloc(video_streams_nb+audio_streams_nb, sizeof(*stream_ctx));
     if (!stream_ctx)
         return AVERROR(ENOMEM);
+    printf("video_streams_nb:%d\n",video_streams_nb);
+    printf("audio_streams_nb:%d\n",audio_streams_nb);
+    for (i = 0; i < video_streams_nb+audio_streams_nb; i++) {
+        AVStream *stream = ifmt_ctx->streams[indexes[i]];
 
-    for (i = 0; i < ifmt_ctx->nb_streams; i++) {
-        AVStream *stream = ifmt_ctx->streams[i];
         const AVCodec *dec = avcodec_find_decoder(stream->codecpar->codec_id);
         AVCodecContext *codec_ctx;
         if (!dec) {
@@ -136,14 +169,14 @@ static int open_output_file(const char *filename)
     }
 
 
-    for (i = 0; i < ifmt_ctx->nb_streams; i++) {
+    for (i = 0; i < video_streams_nb+audio_streams_nb; i++) {
         out_stream = avformat_new_stream(ofmt_ctx, NULL);
         if (!out_stream) {
             av_log(NULL, AV_LOG_ERROR, "Failed allocating output stream\n");
             return AVERROR_UNKNOWN;
         }
 
-        in_stream = ifmt_ctx->streams[i];
+        in_stream = ifmt_ctx->streams[indexes[i]];
         dec_ctx = stream_ctx[i].dec_ctx;
 
         if (dec_ctx->codec_type == AVMEDIA_TYPE_VIDEO
@@ -391,21 +424,20 @@ static int init_filters(void)
     const char *filter_spec;
     unsigned int i;
     int ret;
-    filter_ctx = av_malloc_array(ifmt_ctx->nb_streams, sizeof(*filter_ctx));
+    filter_ctx = av_malloc_array(video_streams_nb+audio_streams_nb, sizeof(*filter_ctx));
     if (!filter_ctx)
         return AVERROR(ENOMEM);
 
-    for (i = 0; i < ifmt_ctx->nb_streams; i++) {
+    for (i = 0; i < video_streams_nb+audio_streams_nb; i++) {
         filter_ctx[i].buffersrc_ctx  = NULL;
         filter_ctx[i].buffersink_ctx = NULL;
         filter_ctx[i].filter_graph   = NULL;
-        if (!(ifmt_ctx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_AUDIO
-                || ifmt_ctx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO))
+        if (!(ifmt_ctx->streams[indexes[i]]->codecpar->codec_type == AVMEDIA_TYPE_AUDIO
+                || ifmt_ctx->streams[indexes[i]]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO))
             continue;
 
-
-        if (ifmt_ctx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO)
-            filter_spec = "setfield=tff"; /* passthrough (dummy) filter for video */
+        if (ifmt_ctx->streams[indexes[i]]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO)
+            filter_spec = "null"; /* passthrough (dummy) filter for video */
         else
             filter_spec = "anull"; /* passthrough (dummy) filter for audio */
         ret = init_filter(&filter_ctx[i], stream_ctx[i].dec_ctx,
@@ -536,9 +568,25 @@ int main(int argc, char **argv)
         if ((ret = av_read_frame(ifmt_ctx, packet)) < 0)
             break;
         stream_index = packet->stream_index;
+        printf("stream_index:%d\n", stream_index);
         av_log(NULL, AV_LOG_DEBUG, "Demuxer gave frame of stream_index %u\n",
                 stream_index);
-
+        //printf("other_streams_nb:%d", other_streams_nb);
+        for(i = 0; i < other_streams_nb; i++){
+          if (stream_index==other_indexes[i]){
+            break;
+          }
+        }
+        if (stream_index==other_indexes[i]){
+          continue;
+        }
+        for(i = 0; i < video_streams_nb+audio_streams_nb; i++){
+          if (stream_index==indexes[i]){
+            break;
+          }
+        }
+        stream_index = i;
+        
         if (filter_ctx[stream_index].filter_graph) {
             StreamContext *stream = &stream_ctx[stream_index];
 
@@ -579,7 +627,7 @@ int main(int argc, char **argv)
     }
 
     /* flush filters and encoders */
-    for (i = 0; i < ifmt_ctx->nb_streams; i++) {
+    for (i = 0; i < video_streams_nb+audio_streams_nb; i++) {
         /* flush filter */
         if (!filter_ctx[i].filter_graph)
             continue;
@@ -600,7 +648,7 @@ int main(int argc, char **argv)
     av_write_trailer(ofmt_ctx);
 end:
     av_packet_free(&packet);
-    for (i = 0; i < ifmt_ctx->nb_streams; i++) {
+    for (i = 0; i < video_streams_nb+audio_streams_nb; i++) {
         avcodec_free_context(&stream_ctx[i].dec_ctx);
         if (ofmt_ctx && ofmt_ctx->nb_streams > i && ofmt_ctx->streams[i] && stream_ctx[i].enc_ctx)
             avcodec_free_context(&stream_ctx[i].enc_ctx);
