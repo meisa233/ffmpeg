@@ -27,7 +27,7 @@
  * API example for demuxing, decoding, filtering, encoding and muxing
  * @example transcoding.c
  */
-
+#include <unistd.h>
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
 #include <libavfilter/buffersink.h>
@@ -35,6 +35,14 @@
 #include <libavutil/channel_layout.h>
 #include <libavutil/opt.h>
 #include <libavutil/pixdesc.h>
+#include <libavutil/time.h>
+
+#include <sys/select.h>
+
+#include <fcntl.h>
+#include <sys/ioctl.h>
+#include <sys/time.h>
+#include <termios.h>
 
 static AVFormatContext *ifmt_ctx;
 static AVFormatContext *ofmt_ctx;
@@ -61,6 +69,76 @@ static int * other_indexes;
 
 static int * indexes;
 static int video_streams_nb=0, audio_streams_nb=0, other_streams_nb=0;
+static int64_t s_time = 0;
+static int64_t last_time = -1;
+
+static int read_key(void){
+    unsigned char ch;
+    int n = 1;
+    struct timeval tv;
+    fd_set rfds;
+    
+    FD_ZERO(&rfds);
+    FD_SET(0, &rfds);
+    tv.tv_sec = 0;
+    tv.tv_usec = 0;
+    n = select(1, &rfds, NULL, NULL, &tv);
+    if (n > 0){
+        n = read(0, &ch, 1);
+        if (n == 1)
+            return ch;
+        
+        return n;
+    }
+    return -1;
+}
+
+static int check_keyboard_interaction(int64_t cur_time){
+    static int64_t last_time;
+    int key;
+    //printf("cur_time - last_time = %ld\n", cur_time - last_time);
+    if(cur_time - last_time >= 100000){
+        key = read_key();
+        //printf("cur_time - last_time >= 100000\n");
+        //printf("%c\n", key);
+        last_time = cur_time;
+    }else
+    {key = -1;}
+    
+    if (key == 'q'){
+        //printf("bingo!");
+        return -1;
+    }
+    return 0;
+}
+
+void set_block_timeout_time(int64_t time)
+{
+    s_time = time;
+}
+
+int64_t get_systime()
+{
+    int64_t time;
+    static int64_t start_time = 0;
+    int64_t now_time;
+    if(start_time == 0){
+        start_time = av_gettime();
+        return 0;
+    }
+    now_time = av_gettime();
+    time = now_time - start_time;
+    return time;
+}
+
+static int interrupt_cb(void * arg)
+{
+    if( get_systime() > s_time){
+        printf("time out:%ld,%ld\n", s_time, get_systime());
+        return 1;
+    }
+    return 0;
+}
 
 static int open_input_file(const char *filename)
 {
@@ -68,6 +146,11 @@ static int open_input_file(const char *filename)
     unsigned int i;
 
     ifmt_ctx = NULL;
+    ifmt_ctx = avformat_alloc_context();
+    ifmt_ctx->interrupt_callback.callback = interrupt_cb;
+    ifmt_ctx->interrupt_callback.opaque = ifmt_ctx;
+    set_block_timeout_time(get_systime() + 5 * 1000000);
+    
     if ((ret = avformat_open_input(&ifmt_ctx, filename, NULL, NULL)) < 0) {
         av_log(NULL, AV_LOG_ERROR, "Cannot open input file\n");
         return ret;
@@ -567,6 +650,10 @@ int main(int argc, char **argv)
 
     /* read all packets */
     while (1) {
+        int64_t cur_time = get_systime();
+        if (check_keyboard_interaction(cur_time) < 0)
+            break;
+        set_block_timeout_time(get_systime() + 2000000);
         if ((ret = av_read_frame(ifmt_ctx, packet)) < 0)
             break;
         stream_index = packet->stream_index;
